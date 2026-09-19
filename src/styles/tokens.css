@@ -1,0 +1,125 @@
+/*
+ * EQUVEXA design tokens
+ * ---------------------------------------------------------------------------
+ * Single source of truth for the visual identity. Each token becomes a
+ * Tailwind utility, e.g. --color-ink -> bg-ink / text-ink,
+ * --font-display -> font-display, --tracking-eyebrow -> tracking-eyebrow.
+ *
+ * Custom tokens outside the colour and font namespaces must also be
+ * registered with tailwind-merge in src/lib/utils.ts.
+ *
+ * Text contrast (WCAG AA requires 4.5:1):
+ *   ink on ivory ................... 17.3:1
+ *   muted on ivory / ivory-deep ....  5.2:1 / 4.7:1
+ *   gold-deep on ivory .............  5.2:1   gold text on light surfaces
+ *   gold on ink ....................  6.0:1   gold text on dark surfaces
+ *   gold on ivory ..................  2.9:1   decorative only, never text
+ *   bronze and leather .............  decorative only (glows, gradients)
+ *   border colours are for decorative hairlines, not form-field outlines
+ */
+
+/* `static` always emits these variables, so plain CSS and inline styles can
+   use them as well as utilities. */
+@theme static {
+  /* Brand palette */
+  --color-ink: #0e0d0b;
+  --color-ink-soft: #1c1a17;
+  --color-ivory: #f6f1e7;
+  --color-ivory-deep: #ece5d7;
+  --color-gold: #a88b57;
+  --color-gold-soft: #cbb489;
+  --color-gold-deep: #78623a;
+  --color-bronze: #9a6b43;
+  --color-leather: #3a2819;
+
+  /* Semantic roles: light surface by default, remapped by `surface-dark` */
+  --color-background: var(--color-ivory);
+  --color-surface: var(--color-ivory-deep);
+  --color-foreground: var(--color-ink);
+  --color-muted: #6b645a;
+  --color-accent: var(--color-gold-deep);
+  --color-border: #dcd3c2;
+  /* Form errors: 7.1:1 on ivory */
+  --color-danger: #8f2f22;
+}
+
+@theme {
+  /* Layout */
+  --container-site: 90rem;
+  --spacing-header: 5.5rem;
+
+  /* Controls: pills are `rounded-full`; inputs and cards that should not be
+     pills share this radius, e.g. `rounded-control`. */
+  --radius-control: 0.875rem;
+  /* Width at which the full header navigation fits (`nav:` variant). */
+  --breakpoint-nav: 70rem;
+
+  /* Typography: fluid display scale for Cormorant Garamond headings */
+  --text-display-2xl: clamp(3.25rem, 1.9rem + 5.2vw, 6.5rem);
+  --text-display-2xl--line-height: 0.92;
+  --text-display-xl: clamp(2.75rem, 1.8rem + 4vw, 5.5rem);
+  --text-display-xl--line-height: 0.98;
+  --text-display-lg: clamp(2.25rem, 1.6rem + 2.8vw, 4.25rem);
+  --text-display-lg--line-height: 1.02;
+  --text-display-md: clamp(1.75rem, 1.35rem + 1.7vw, 2.75rem);
+  --text-display-md--line-height: 1.08;
+  --text-display-sm: clamp(1.375rem, 1.2rem + 0.75vw, 1.875rem);
+  --text-display-sm--line-height: 1.15;
+  --text-eyebrow: 0.6875rem;
+  --text-eyebrow--line-height: 1.2;
+
+  --tracking-eyebrow: 0.24em;
+  --tracking-display: 0.02em;
+
+  /* Motion */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-quint: cubic-bezier(0.83, 0, 0.17, 1);
+
+  /* Page entry. Stagger with the --enter-delay custom property. */
+  --animate-enter: enter 1.1s var(--ease-out-expo) var(--enter-delay, 0ms)
+    both;
+
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 1.5rem, 0);
+    }
+  }
+
+  /* Floating elements that settle from above, such as the homepage header. */
+  --animate-drop-in: drop-in 0.9s var(--ease-out-expo) 0.1s both;
+
+  @keyframes drop-in {
+    from {
+      opacity: 0;
+      transform: translate3d(0, -1rem, 0);
+    }
+  }
+}
+
+/* Font variables are set by next/font on <html> (see src/styles/fonts.ts).
+   `inline` makes utilities reference them directly. */
+@theme inline {
+  --font-display: var(--font-display-family), serif;
+  --font-sans: var(--font-sans-family), sans-serif;
+}
+
+/* Dark colour roles without a background, e.g. for the transparent header.
+   Components styled with the semantic roles (text-foreground, text-muted,
+   border-border, ...) adapt automatically inside this scope. */
+@utility tone-dark {
+  --color-background: var(--color-ink);
+  --color-surface: var(--color-ink-soft);
+  --color-foreground: var(--color-ivory);
+  --color-muted: #a8a092;
+  --color-accent: var(--color-gold);
+  --color-border: #34302a;
+  --color-danger: #eba597;
+}
+
+/* Dark editorial sections: dark roles plus the matching ground. */
+@utility surface-dark {
+  @apply tone-dark;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}

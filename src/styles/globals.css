@@ -1,0 +1,166 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+/*
+ * Global base styles
+ * ---------------------------------------------------------------------------
+ * Keep this layer small and truly global. Component styling belongs in
+ * Tailwind utilities inside the components themselves.
+ */
+@layer base {
+  html {
+    color-scheme: light;
+    scroll-padding-top: calc(--theme(--spacing-header) + 1rem);
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background-color: var(--color-gold-soft);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+  }
+}
+
+/* A modal dialog (the mobile menu) locks page scrolling while it is open. */
+html:has(dialog[open]:modal) {
+  overflow: hidden;
+}
+
+/*
+ * Scroll reveal, driven by <Reveal>. Nothing is hidden until the script has
+ * run (data-reveal-ready), so content stays visible without JavaScript and
+ * when reduced motion is requested.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  /* Hiding is instant (off-screen); only the reveal itself animates. */
+  [data-reveal-ready] [data-reveal]:not([data-revealed]) {
+    opacity: 0;
+    transform: translate3d(0, 2rem, 0);
+  }
+
+  [data-reveal-ready] [data-reveal][data-revealed] {
+    transition:
+      opacity 0.9s var(--ease-out-expo),
+      transform 1.2s var(--ease-out-expo);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+}
+
+/* Gold underline that draws in on hover and keyboard focus. */
+@utility link-underline {
+  background-image: linear-gradient(
+    var(--color-accent),
+    var(--color-accent)
+  );
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-size: 0% 1px;
+  transition: background-size 0.6s var(--ease-out-expo);
+
+  &:hover,
+  &:focus-visible {
+    background-size: 100% 1px;
+  }
+}
+
+/* Warm atmospheric light for dark sections, layered over their ground. */
+@utility glow-warm {
+  background-image:
+    radial-gradient(
+      70% 90% at 88% 0%,
+      color-mix(in oklab, var(--color-leather) 80%, transparent) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      50% 60% at 0% 100%,
+      color-mix(in oklab, var(--color-gold-deep) 20%, transparent) 0%,
+      transparent 75%
+    );
+}
+
+/*
+ * Lit ivory ground for studio product shots. Their white backgrounds are
+ * multiplied into it (mix-blend-multiply on the image), so no file editing is
+ * needed. `isolation` keeps the blend inside the frame.
+ */
+@utility studio-light {
+  isolation: isolate;
+  background-image: radial-gradient(
+    80% 80% at 50% 42%,
+    color-mix(in oklab, var(--color-ivory) 45%, white) 0%,
+    var(--color-ivory) 48%,
+    var(--color-ivory-deep) 100%
+  );
+}
+
+/*
+ * Studio photo backgrounds are near-white rather than pure white, which
+ * leaves a faint edge after blending. The image box matches the photo's
+ * aspect ratio (set --photo-ratio) and its outer edge is feathered. The mask
+ * forms its own compositing group, so the multiply blend is applied to this
+ * box rather than to the image inside it.
+ */
+@utility studio-frame {
+  container-type: size;
+  display: grid;
+  place-items: center;
+}
+
+@utility studio-photo {
+  position: relative;
+  width: min(100cqw, 100cqh * var(--photo-ratio, 1));
+  aspect-ratio: var(--photo-ratio, 1);
+  mix-blend-mode: multiply;
+  mask-image:
+    linear-gradient(to right, transparent, black 4%, black 96%, transparent),
+    linear-gradient(to bottom, transparent, black 4%, black 96%, transparent);
+  mask-composite: intersect;
+}
+
+/*
+ * Restrained film grain for dark sections. The element must be positioned.
+ * Uses normal blending on purpose: a blend mode here would repaint the whole
+ * section whenever anything beneath it animates.
+ */
+@utility grain {
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.045;
+  }
+}
+
+/* Respect the reduced-motion preference for all animations added later. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
