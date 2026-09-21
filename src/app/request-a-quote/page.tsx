@@ -20,14 +20,14 @@ export const metadata = pageMetadata({
 
 const nextSteps = [
   {
-    title: "Prepare your inquiry",
+    title: "Send your inquiry",
     description:
-      "Complete the form. It turns your details into a message that is ready to send.",
+      "Complete the form. Your details go straight to the EQUVEXA inbox by email.",
   },
   {
-    title: "Send it your way",
+    title: "Get a reply by email",
     description:
-      "Choose email or WhatsApp, and review the message before you send it.",
+      "Answers come to the email address you give. WhatsApp stays open if you prefer to chat.",
   },
   {
     title: "Discuss your order",

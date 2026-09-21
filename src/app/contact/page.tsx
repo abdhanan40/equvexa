@@ -30,7 +30,7 @@ export default function ContactPage() {
             business
           </>
         }
-        intro="Reach the EQUVEXA team by email or WhatsApp, or prepare a message with the form below."
+        intro="Reach the EQUVEXA team by email or WhatsApp, or send a message with the form below."
       />
 
       <section className="py-20 sm:py-28">

@@ -2,7 +2,7 @@
 
 Website for Equvexa Industries, an equestrian riding gear manufacturer and exporter based in Pakistan, built for international B2B buyers: wholesalers, distributors, tack shops, equestrian retailers and private-label brands.
 
-> **Status: Stage 2 (UI) for local, private preview.** All pages are built. Forms have no submission backend yet: they prepare a message that the visitor sends by email or WhatsApp. Nothing is deployed.
+> **Status: Stage 3 (functional integration) for local, private preview.** All pages are built. Both forms deliver inquiries by email to Equvexa Industries through a server action; if delivery fails, the visitor is offered the same message to send themselves by email or WhatsApp. Nothing is deployed.
 
 ## Tech stack
 
@@ -25,6 +25,16 @@ npm run dev
 ```
 
 Then open <http://localhost:3000> (Next.js picks the next free port if 3000 is busy). To override environment values, copy `.env.example` to `.env.local`.
+
+### Inquiry delivery
+
+The forms email each inquiry to Equvexa Industries through [Resend](https://resend.com). Three server-only variables in `.env.local` drive it (never commit them, and never expose them to the browser):
+
+| Variable             | Purpose                                                                       |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `RESEND_API_KEY`     | Resend API key. Without it, every submission reports that it could not be sent |
+| `INQUIRY_FROM_EMAIL` | Sender address, on a domain verified in Resend                                 |
+| `INQUIRY_TO_EMAIL`   | Recipient. Defaults to the address in `src/config/site.ts`                     |
 
 ## Scripts
 
@@ -63,7 +73,7 @@ src/
   app/                      Routes, layouts, metadata files
   assets/                   Reserved for statically imported images and icons (empty)
   components/
-    forms/                  Form fields and the "inquiry ready" panel
+    forms/                  Form fields, spam trap and the sent / not-sent panels
     layout/                 Header, mobile menu, footer, logo
     product/                Product photo, card, gallery, details, inquiry tile
     ui/                     Primitives: Button, Container, Reveal, Magnetic, icons, ...
@@ -114,4 +124,4 @@ src/
 - The catalogue has exactly seven categories: Riding Gloves, Stirrups, Riding Chaps, Horse Salt, Horse Riding Caps, Riding Saddles and Horse Bits.
 - Publish only business information confirmed by Equvexa Industries. No invented products, prices, certifications, statistics, reviews, addresses or contact details.
 - This is not an e-commerce store: no cart, checkout or payments. The primary actions are Request a Quote, Wholesale Inquiry and WhatsApp contact.
-- Never show a success message for something that did not happen. The forms state that nothing is sent until the visitor sends it.
+- Never show a success message for something that did not happen. A form confirms delivery only after the server has handed the inquiry to the email provider; otherwise it says it could not be sent and offers the email and WhatsApp fallback.

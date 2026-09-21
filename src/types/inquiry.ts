@@ -23,3 +23,16 @@ export type ContactInquiry = {
 };
 
 export type FieldErrors<T> = Partial<Record<keyof T, string>>;
+
+/** Which website form an inquiry came from. */
+export type InquiryForm = "quote" | "contact";
+
+/**
+ * What the server tells a form after a submission. Deliberately small: it
+ * never carries provider details or the reason a submission was refused.
+ */
+export type InquirySubmissionResult<T> =
+  | { status: "sent"; reference: string }
+  | { status: "invalid"; errors: FieldErrors<T> }
+  | { status: "failed" }
+  | { status: "rate-limited" };
