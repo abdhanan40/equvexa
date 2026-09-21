@@ -1,8 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { flushSync } from "react-dom";
+import { useState, type ChangeEvent } from "react";
 
 import {
   ErrorSummary,
@@ -11,19 +10,25 @@ import {
   TextAreaField,
   TextField,
 } from "@/components/forms/fields";
-import { InquiryReadyPanel } from "@/components/forms/inquiry-ready-panel";
+import { InquiryFallbackPanel } from "@/components/forms/inquiry-fallback-panel";
+import { InquirySentPanel } from "@/components/forms/inquiry-sent-panel";
+import { SpamTrap } from "@/components/forms/spam-trap";
 import { Button } from "@/components/ui/button";
+import { siteConfig } from "@/config/site";
 import { productCategories } from "@/data/product-categories";
 import { useHydrated } from "@/hooks/use-hydrated";
+import { useInquirySubmission } from "@/hooks/use-inquiry-submission";
 import {
+  FIELD_MAX_LENGTH,
   MESSAGE_MAX_LENGTH,
   inquiryTypeOptions,
+  isCategorySlug,
+  isInquiryType,
   prepareQuoteInquiry,
   validateQuoteInquiry,
-  type PreparedInquiry,
 } from "@/lib/inquiry";
-import type { ProductCategorySlug } from "@/types/catalog";
-import type { FieldErrors, InquiryType, QuoteInquiry } from "@/types/inquiry";
+import { submitQuoteInquiry } from "@/server/inquiry/actions";
+import type { QuoteInquiry } from "@/types/inquiry";
 
 const emptyQuoteInquiry: QuoteInquiry = {
   fullName: "",
@@ -56,17 +61,31 @@ const categoryOptions = productCategories.map((category) => ({
 
 export function QuoteForm({ defaults }: { defaults: QuoteInquiry }) {
   const [values, setValues] = useState(defaults);
-  const [errors, setErrors] = useState<FieldErrors<QuoteInquiry>>({});
-  const [attempted, setAttempted] = useState(false);
-  const [prepared, setPrepared] = useState<PreparedInquiry | null>(null);
-  const readyHeadingRef = useRef<HTMLHeadingElement>(null);
+  // Kept when the form clears, so the confirmation can name it.
+  const [sentTo, setSentTo] = useState("");
   const hydrated = useHydrated();
 
-  const setField =(field: keyof QuoteInquiry, value: string) => {
+  const submission = useInquirySubmission<QuoteInquiry>({
+    validate: validateQuoteInquiry,
+    send: submitQuoteInquiry,
+    fieldOrder,
+    fieldId,
+    // The category and inquiry type a link preselected stay chosen.
+    onSent: () => {
+      setSentTo(values.email.trim());
+      setValues({
+        ...emptyQuoteInquiry,
+        category: defaults.category,
+        inquiryType: defaults.inquiryType,
+      });
+    },
+  });
+  const { state, errors, attempted, sending } = submission;
+
+  const setField = (field: keyof QuoteInquiry, value: string) => {
     const next = { ...values, [field]: value };
     setValues(next);
-    setPrepared(null);
-    if (attempted) setErrors(validateQuoteInquiry(next));
+    submission.handleChange(next);
   };
 
   const bind = (field: keyof QuoteInquiry) => ({
@@ -79,22 +98,9 @@ export function QuoteForm({ defaults }: { defaults: QuoteInquiry }) {
     ) => setField(field, event.target.value),
   });
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const nextErrors = validateQuoteInquiry(values);
-    setErrors(nextErrors);
-    setAttempted(true);
-
-    const firstInvalid = fieldOrder.find((field) => nextErrors[field]);
-    if (firstInvalid) {
-      setPrepared(null);
-      document.getElementById(fieldId(firstInvalid))?.focus();
-      return;
-    }
-
-    flushSync(() => setPrepared(prepareQuoteInquiry(values)));
-    readyHeadingRef.current?.focus();
-  };
+  const limit = (field: keyof typeof FIELD_MAX_LENGTH) => ({
+    maxLength: FIELD_MAX_LENGTH[field],
+  });
 
   const errorList = fieldOrder.flatMap((field) => {
     const message = errors[field];
@@ -103,24 +109,31 @@ export function QuoteForm({ defaults }: { defaults: QuoteInquiry }) {
 
   return (
     <div>
-      <form noValidate onSubmit={handleSubmit} className="grid gap-8">
+      <form
+        noValidate
+        onSubmit={(event) => submission.submit(event, values)}
+        className="relative grid gap-8"
+      >
         {attempted ? <ErrorSummary errors={errorList} /> : null}
 
         <div className="grid gap-7 sm:grid-cols-2">
           <TextField
             {...bind("fullName")}
+            {...limit("fullName")}
             label="Full name"
             autoComplete="name"
             required
           />
           <TextField
             {...bind("company")}
+            {...limit("company")}
             label="Business / company name"
             autoComplete="organization"
             required
           />
           <TextField
             {...bind("email")}
+            {...limit("email")}
             label="Business email"
             type="email"
             inputMode="email"
@@ -129,6 +142,7 @@ export function QuoteForm({ defaults }: { defaults: QuoteInquiry }) {
           />
           <TextField
             {...bind("country")}
+            {...limit("country")}
             label="Country"
             autoComplete="country-name"
             required
@@ -142,6 +156,7 @@ export function QuoteForm({ defaults }: { defaults: QuoteInquiry }) {
           />
           <TextField
             {...bind("quantity")}
+            {...limit("quantity")}
             label="Estimated quantity"
             hint="For example: 300 pairs or 50 units per style."
           />
@@ -160,41 +175,60 @@ export function QuoteForm({ defaults }: { defaults: QuoteInquiry }) {
 
         <TextAreaField
           {...bind("message")}
+          {...limit("message")}
           label="Message / requirements"
           hint={`Styles, sizes, branding, packaging, delivery country or timing. Up to ${MESSAGE_MAX_LENGTH.toLocaleString("en")} characters.`}
-          maxLength={MESSAGE_MAX_LENGTH}
           required
         />
 
+        <SpamTrap />
+
         <div className="flex flex-col gap-5 border-t border-border pt-8 sm:flex-row sm:items-center sm:justify-between">
           <p className="max-w-sm text-sm leading-relaxed text-muted">
-            This form prepares your message. You review and send it yourself
-            by email or WhatsApp.
+            Your inquiry is sent to the {siteConfig.brand} inbox. Your details
+            are used only to answer it.
           </p>
           <Button
             type="submit"
             size="lg"
             className="shrink-0"
-            disabled={!hydrated}
+            disabled={!hydrated || sending}
           >
-            Prepare inquiry
+            {sending ? "Sending..." : "Send inquiry"}
           </Button>
         </div>
+        <p aria-live="polite" className="sr-only">
+          {sending ? "Sending your inquiry." : ""}
+        </p>
       </form>
 
-      {prepared ? (
-        <InquiryReadyPanel inquiry={prepared} headingRef={readyHeadingRef} />
+      {state.status === "sent" ? (
+        <InquirySentPanel
+          title="Your inquiry has been sent"
+          description={`It is on its way to the ${siteConfig.brand} inbox. Keep the reference below if you write to us again about this inquiry.`}
+          reference={state.reference}
+          replyTo={sentTo}
+        />
+      ) : null}
+
+      {state.status === "failed" || state.status === "rate-limited" ? (
+        <InquiryFallbackPanel
+          inquiry={prepareQuoteInquiry(values)}
+          title={
+            state.status === "rate-limited"
+              ? "Too many inquiries from this device"
+              : "Your inquiry could not be sent"
+          }
+          intro={
+            state.status === "rate-limited"
+              ? "Several inquiries have already been sent from this device. Please wait a few minutes before trying again, or send this one yourself by email or WhatsApp."
+              : `The website could not deliver your inquiry to ${siteConfig.brand}. Everything you typed is still in the form above. Try again, or send the same inquiry yourself by email or WhatsApp.`
+          }
+          onRetry={submission.retry}
+        />
       ) : null}
     </div>
   );
-}
-
-function isCategorySlug(value: string | null): value is ProductCategorySlug {
-  return productCategories.some((category) => category.slug === value);
-}
-
-function isInquiryType(value: string | null): value is InquiryType {
-  return inquiryTypeOptions.some((option) => option.value === value);
 }
 
 /** Static render of the empty form, used while search parameters resolve. */

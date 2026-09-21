@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type Ref } from "react";
+import { useState } from "react";
 
+import { INQUIRY_PANEL_TITLE_ID } from "@/components/forms/inquiry-panel-ids";
 import { Button, ButtonLink } from "@/components/ui/button";
 import {
   CheckIcon,
@@ -16,15 +17,21 @@ import type { PreparedInquiry } from "@/lib/inquiry";
 type CopyState = "idle" | "copied" | "failed";
 
 /**
- * Shown after a form validates. Nothing is sent by the website: the visitor
- * chooses email or WhatsApp and sends the pre-filled message themselves.
+ * Shown when the website could not deliver an inquiry. The typed details stay
+ * in the form above, and the same message is offered here to send by email or
+ * WhatsApp instead. Nothing is sent from this panel on its own: the visitor
+ * chooses, and their email app or WhatsApp opens with the message filled in.
  */
-export function InquiryReadyPanel({
+export function InquiryFallbackPanel({
   inquiry,
-  headingRef,
+  title,
+  intro,
+  onRetry,
 }: {
   inquiry: PreparedInquiry;
-  headingRef: Ref<HTMLHeadingElement>;
+  title: string;
+  intro: string;
+  onRetry: () => void;
 }) {
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const fullText = `${inquiry.subject}\n\n${inquiry.body}`;
@@ -40,26 +47,26 @@ export function InquiryReadyPanel({
 
   return (
     <section
-      aria-labelledby="inquiry-ready-title"
+      aria-labelledby={INQUIRY_PANEL_TITLE_ID.fallback}
       className="surface-dark mt-10 border border-border p-6 sm:p-10"
     >
-      <h2
-        id="inquiry-ready-title"
-        ref={headingRef}
-        tabIndex={-1}
-        className="font-display text-display-md tracking-display uppercase outline-none"
-      >
-        Your inquiry is ready to send
-      </h2>
-      <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted">
-        Nothing has been sent yet. Choose how you would like to send it to{" "}
-        {siteConfig.brand}. Your email app or WhatsApp opens with the message
-        filled in, so you can review it before sending.
+      <p className="text-eyebrow font-semibold tracking-eyebrow text-danger uppercase">
+        Not sent
       </p>
+      <h2
+        id={INQUIRY_PANEL_TITLE_ID.fallback}
+        tabIndex={-1}
+        className="mt-4 font-display text-display-md tracking-display uppercase outline-none"
+      >
+        {title}
+      </h2>
+      <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted">{intro}</p>
 
       <div className="mt-8 flex flex-wrap items-center gap-3">
+        <Button onClick={onRetry}>Try again</Button>
         <ButtonLink
           href={inquiry.emailUrl}
+          variant="secondary"
           icon={<MailIcon className="size-5 shrink-0" />}
         >
           Send by email

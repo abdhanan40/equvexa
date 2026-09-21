@@ -1,6 +1,10 @@
 import { siteConfig } from "@/config/site";
-import { getProductCategory } from "@/data/product-categories";
+import {
+  getProductCategory,
+  productCategories,
+} from "@/data/product-categories";
 import { mailtoUrl, whatsappUrl } from "@/lib/contact";
+import type { ProductCategorySlug } from "@/types/catalog";
 import type {
   ContactInquiry,
   FieldErrors,
@@ -9,11 +13,12 @@ import type {
 } from "@/types/inquiry";
 
 /*
- * Inquiry helpers shared by the quote and contact forms.
+ * Inquiry rules shared by the forms (in the browser) and by the server, which
+ * applies them again as the authority before anything is sent.
  *
- * There is no submission backend yet. A valid form is turned into a message
- * that the visitor sends themselves by email or WhatsApp. When a backend is
- * added, reuse the validators and replace the delivery step.
+ * Submissions are delivered by email from the server
+ * (src/server/inquiry). The prepared message below is the fallback the
+ * visitor can send themselves by email or WhatsApp if delivery fails.
  */
 
 export const inquiryTypeOptions: readonly {
@@ -28,40 +33,108 @@ export const inquiryTypeOptions: readonly {
 
 export const MESSAGE_MAX_LENGTH = 1000;
 
+/** Maximum length of each field, enforced by the forms and the server. */
+export const FIELD_MAX_LENGTH = {
+  name: 120,
+  fullName: 120,
+  company: 160,
+  email: 254,
+  country: 80,
+  quantity: 80,
+  message: MESSAGE_MAX_LENGTH,
+} as const;
+
+/** Names of the hidden fields that travel with a submission. */
+export const INQUIRY_META_FIELDS = {
+  /** Spam trap: stays empty for people, bots tend to fill it. */
+  trap: "eqx_ref_code",
+  /** Milliseconds between the form appearing and being submitted. */
+  elapsed: "eqx_elapsed",
+  /** Random id of one submission, so a retry is not sent twice. */
+  submission: "eqx_submission",
+} as const;
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-function validateEmail(email: string) {
+/* Control characters. One-line fields also refuse line and paragraph
+   separators; the message keeps line breaks and tabs. */
+const SINGLE_LINE_FORBIDDEN = /[\u0000-\u001F\u007F\u2028\u2029]/;
+const MULTILINE_FORBIDDEN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+
+export function isCategorySlug(value: unknown): value is ProductCategorySlug {
+  return productCategories.some((category) => category.slug === value);
+}
+
+export function isInquiryType(value: unknown): value is InquiryType {
+  return inquiryTypeOptions.some((option) => option.value === value);
+}
+
+function tooLong(value: string, max: number) {
+  return value.trim().length > max
+    ? `Use ${max.toLocaleString("en")} characters or fewer.`
+    : undefined;
+}
+
+/** Checks a one-line text field: required, length and characters. */
+function checkLine(
+  value: string,
+  max: number,
+  emptyMessage?: string,
+): string | undefined {
+  if (!value.trim()) return emptyMessage;
+  if (SINGLE_LINE_FORBIDDEN.test(value)) {
+    return "Remove line breaks and special characters.";
+  }
+  return tooLong(value, max);
+}
+
+function checkMessage(value: string, emptyMessage: string) {
+  if (!value.trim()) return emptyMessage;
+  if (MULTILINE_FORBIDDEN.test(value)) {
+    return "Remove unsupported special characters from your message.";
+  }
+  return tooLong(value, FIELD_MAX_LENGTH.message);
+}
+
+function checkEmail(email: string) {
   if (!email.trim()) return "Enter your email address.";
-  if (!EMAIL_PATTERN.test(email.trim())) {
+  if (
+    SINGLE_LINE_FORBIDDEN.test(email) ||
+    !EMAIL_PATTERN.test(email.trim())
+  ) {
     return "Enter an email address in the format name@company.com.";
   }
-  return undefined;
+  return tooLong(email, FIELD_MAX_LENGTH.email);
+}
+
+function collect<T>(entries: [keyof T, string | undefined][]): FieldErrors<T> {
+  const errors: FieldErrors<T> = {};
+  for (const [field, message] of entries) {
+    if (message) errors[field] = message;
+  }
+  return errors;
 }
 
 export function validateQuoteInquiry(values: QuoteInquiry) {
-  const errors: FieldErrors<QuoteInquiry> = {};
-  if (!values.fullName.trim()) errors.fullName = "Enter your full name.";
-  if (!values.company.trim()) {
-    errors.company = "Enter your business or company name.";
-  }
-  const email = validateEmail(values.email);
-  if (email) errors.email = email;
-  if (!values.country.trim()) errors.country = "Enter your country.";
-  if (!values.category) errors.category = "Select a product category.";
-  if (!values.inquiryType) errors.inquiryType = "Select an inquiry type.";
-  if (!values.message.trim()) {
-    errors.message = "Describe your requirements.";
-  }
-  return errors;
+  return collect<QuoteInquiry>([
+    ["fullName", checkLine(values.fullName, FIELD_MAX_LENGTH.fullName, "Enter your full name.")],
+    ["company", checkLine(values.company, FIELD_MAX_LENGTH.company, "Enter your business or company name.")],
+    ["email", checkEmail(values.email)],
+    ["country", checkLine(values.country, FIELD_MAX_LENGTH.country, "Enter your country.")],
+    ["category", isCategorySlug(values.category) ? undefined : "Select a product category."],
+    ["quantity", values.quantity.trim() ? checkLine(values.quantity, FIELD_MAX_LENGTH.quantity) : undefined],
+    ["inquiryType", isInquiryType(values.inquiryType) ? undefined : "Select an inquiry type."],
+    ["message", checkMessage(values.message, "Describe your requirements.")],
+  ]);
 }
 
 export function validateContactInquiry(values: ContactInquiry) {
-  const errors: FieldErrors<ContactInquiry> = {};
-  if (!values.name.trim()) errors.name = "Enter your name.";
-  const email = validateEmail(values.email);
-  if (email) errors.email = email;
-  if (!values.message.trim()) errors.message = "Enter your message.";
-  return errors;
+  return collect<ContactInquiry>([
+    ["name", checkLine(values.name, FIELD_MAX_LENGTH.name, "Enter your name.")],
+    ["email", checkEmail(values.email)],
+    ["company", values.company.trim() ? checkLine(values.company, FIELD_MAX_LENGTH.company) : undefined],
+    ["message", checkMessage(values.message, "Enter your message.")],
+  ]);
 }
 
 export type PreparedInquiry = {
