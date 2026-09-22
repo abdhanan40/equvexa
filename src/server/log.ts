@@ -43,3 +43,28 @@ export function logInquiry(event: InquiryLogEvent) {
   else if (event.outcome === "sent" || event.outcome === "duplicate") console.info(line);
   else console.warn(line);
 }
+
+/** Setup problems an operator should fix, each logged once per process or isolate. */
+export type ConfigWarning =
+  | "cf-connecting-ip-missing"
+  | "visitor-hash-secret-missing"
+  | "visitor-hash-secret-short"
+  | "inquiry-guard-binding-missing";
+
+const warned = new Set<ConfigWarning>();
+
+export function warnOnce(warning: ConfigWarning) {
+  if (warned.has(warning)) return;
+  warned.add(warning);
+  console.warn(JSON.stringify({ event: "inquiry-config", warning }));
+}
+
+/**
+ * A call to the shared inquiry store failed and the submission carried on
+ * without it. Only the operation and the error's type are logged, never its
+ * message, which could echo request details.
+ */
+export function logGuardFailure(operation: string, error: unknown) {
+  const type = error instanceof Error ? error.name.replace(/[^a-z]/gi, "").slice(0, 40) : "unknown";
+  console.error(JSON.stringify({ event: "inquiry-guard", failed: operation, error: type }));
+}

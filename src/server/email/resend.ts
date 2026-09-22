@@ -9,6 +9,12 @@ import "server-only";
 const DEFAULT_API_URL = "https://api.resend.com";
 const TIMEOUT_MS = 10_000;
 
+/**
+ * Resend rejects requests without a User-Agent (403, error 1010). Node adds
+ * one to every fetch, but Cloudflare Workers sends none, so it is set here.
+ */
+const USER_AGENT = "equvexa-website/1.0 (+https://equvexaindustries.com)";
+
 export type OutgoingEmail = {
   from: string;
   to: string;
@@ -55,6 +61,7 @@ export async function sendEmail(email: OutgoingEmail): Promise<SendResult> {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         "Idempotency-Key": email.idempotencyKey,
+        "User-Agent": USER_AGENT,
       },
       body: JSON.stringify({
         from: email.from,

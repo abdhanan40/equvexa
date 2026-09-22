@@ -17,3 +17,4 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Design tokens live in `src/styles/tokens.css`; do not hard-code colours in components.
 - Use only the approved images in `public/images/`; never substitute stock or downloaded product imagery, and never edit the image files.
 - No fake functionality: controls must perform a real action or say honestly what they do. The forms deliver inquiries by email from the server (`src/server/inquiry/`); success is shown only when delivery succeeded.
+- Cloudflare builds bundle every `.env*` file into the Worker. Never run a Cloudflare build (`npm run preview`, `deploy`, `upload`, or `opennextjs-cloudflare` directly) while an `.env*` file holds a secret; production secrets live in Cloudflare (see README, "Deploying to Cloudflare").

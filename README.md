@@ -2,7 +2,7 @@
 
 Website for Equvexa Industries, an equestrian riding gear manufacturer and exporter based in Pakistan, built for international B2B buyers: wholesalers, distributors, tack shops, equestrian retailers and private-label brands.
 
-> **Status: Stage 3 (functional integration) for local, private preview.** All pages are built. Both forms deliver inquiries by email to Equvexa Industries through a server action; if delivery fails, the visitor is offered the same message to send themselves by email or WhatsApp. Nothing is deployed.
+> **Status: Stage 3 (functional integration) for local, private preview.** All pages are built. Both forms deliver inquiries by email to Equvexa Industries through a server action; if delivery fails, the visitor is offered the same message to send themselves by email or WhatsApp. The project is prepared for Cloudflare Workers (see [Deploying to Cloudflare](#deploying-to-cloudflare)), but nothing is deployed and the domain is not connected yet.
 
 ## Tech stack
 
@@ -14,8 +14,9 @@ Website for Equvexa Industries, an equestrian riding gear manufacturer and expor
 | Tailwind CSS                          | 4.3                                                        |
 | ESLint                                | 9, flat config with `eslint-config-next`                   |
 | clsx + tailwind-merge                 | Class name composition through `cn()`                      |
+| OpenNext Cloudflare adapter + Wrangler | 1.20.6 + 4.135.0, for Cloudflare Workers (pinned)         |
 
-No animation library is used: motion relies on CSS, the Web Animations API and `requestAnimationFrame`. Requires Node.js 20.9 or later.
+No animation library is used: motion relies on CSS, the Web Animations API and `requestAnimationFrame`. Requires Node.js 22 or later (Wrangler's minimum; Next.js alone runs on 20.9).
 
 ## Getting started
 
@@ -28,13 +29,60 @@ Then open <http://localhost:3000> (Next.js picks the next free port if 3000 is b
 
 ### Inquiry delivery
 
-The forms email each inquiry to Equvexa Industries through [Resend](https://resend.com). Three server-only variables in `.env.local` drive it (never commit them, and never expose them to the browser):
+The forms email each inquiry to Equvexa Industries through [Resend](https://resend.com). Server-only variables in `.env.local` drive it locally (never commit them, and never expose them to the browser; on Cloudflare they are Worker settings, see [Deploying to Cloudflare](#deploying-to-cloudflare)):
 
-| Variable             | Purpose                                                                       |
-| -------------------- | ----------------------------------------------------------------------------- |
-| `RESEND_API_KEY`     | Resend API key. Without it, every submission reports that it could not be sent |
-| `INQUIRY_FROM_EMAIL` | Sender address, on a domain verified in Resend                                 |
-| `INQUIRY_TO_EMAIL`   | Recipient. Defaults to the address in `src/config/site.ts`                     |
+| Variable              | Purpose                                                                       |
+| --------------------- | ----------------------------------------------------------------------------- |
+| `RESEND_API_KEY`      | Resend API key. Without it, every submission reports that it could not be sent |
+| `INQUIRY_FROM_EMAIL`  | Sender address, on a domain verified in Resend                                 |
+| `INQUIRY_TO_EMAIL`    | Recipient. Defaults to the address in `src/config/site.ts`                     |
+| `VISITOR_HASH_SECRET` | Key for the hashed visitor ids used by rate limiting. Optional locally, required on Cloudflare |
+
+## Deploying to Cloudflare
+
+The site runs on Cloudflare Workers through the OpenNext adapter (`@opennextjs/cloudflare`), which executes the regular Next.js build output, so pages and Server Actions behave as they do under `next start`.
+
+| Piece                                                                    | File                          |
+| ------------------------------------------------------------------------ | ----------------------------- |
+| Worker entry: the OpenNext build plus the `InquiryGuard` Durable Object  | `cloudflare/worker.ts`        |
+| Rate limits and submission records, in a SQLite-backed Durable Object     | `cloudflare/inquiry-guard.ts` |
+| Worker configuration: bindings, variables and the list of required secrets | `wrangler.jsonc`            |
+| Adapter configuration: a read-only page cache on Workers Static Assets    | `open-next.config.ts`         |
+| Long-lived caching for Next.js's hashed static files                      | `public/_headers`             |
+
+- Every page is prerendered; `next/image` requests (`/_next/image`) are resized through the Cloudflare Images binding (`IMAGES`), so image components need no changes.
+- On Cloudflare the inquiry forms keep their rate limits and duplicate-submission records in the `InquiryGuard` Durable Object, and identify visitors by `CF-Connecting-IP`. `next dev` and `next start` keep the same data in memory and use the connection address.
+- After changing `wrangler.jsonc`, run `npm run cf-typegen` to refresh `cloudflare/cloudflare-env.d.ts`.
+
+### Settings
+
+| Name                   | Kind            | Where it is set                                                         | Value |
+| ---------------------- | --------------- | ----------------------------------------------------------------------- | ----- |
+| `NEXT_PUBLIC_SITE_URL` | Build variable  | Workers Builds, build variables (read when the site is built)            | `https://equvexaindustries.com` |
+| `RESEND_API_KEY`       | Secret          | Worker settings in the dashboard, or `npx wrangler secret put`           | A Resend key with sending access only |
+| `VISITOR_HASH_SECRET`  | Secret          | Same                                                                    | A random string of at least 32 characters |
+| `INQUIRY_FROM_EMAIL`   | Secret, for now | Same; moves to `vars` in `wrangler.jsonc` once the production sender is chosen | An address on a domain verified in Resend |
+| `INQUIRY_TO_EMAIL`     | Variable        | `wrangler.jsonc`                                                        | `equvexaindustries@gmail.com` |
+
+`RESEND_API_BASE_URL` only exists to test failure handling against a local stand-in; never set it on Cloudflare.
+
+### Keep secrets out of the build
+
+The adapter copies every variable from `.env`, `.env.local` and the other `.env.*` files into the Worker it builds, and `deploy` or `upload` would send them to Cloudflare inside the Worker's code. Therefore:
+
+- Build and deploy with Cloudflare Workers Builds (connected to the GitHub repository), where no `.env` file exists.
+- `npm run preview`, `deploy` and `upload` first run `npm run cf:check-env`, which stops while any `.env` file holds a secret. It prints variable names, never values.
+- For a local Worker preview, put secrets in `.dev.vars` (copy `.dev.vars.example`), not in `.env.local`. OpenNext does not guarantee Windows support: on Windows, preview in WSL or rely on Workers Builds.
+
+### Workers Builds
+
+| Setting                               | Value                                                   |
+| ------------------------------------- | ------------------------------------------------------- |
+| Build command                         | `npm run cf:check-env && npx opennextjs-cloudflare build` |
+| Deploy command                        | `npx opennextjs-cloudflare deploy`                      |
+| Non-production branch deploy command  | `npx opennextjs-cloudflare upload`                      |
+
+The Worker's name in the dashboard must match `name` in `wrangler.jsonc` (`equvexa`). The Workers Paid plan is recommended: the free plan allows 10 ms of CPU time per request, and server-rendered requests such as form submissions can need more.
 
 ## Scripts
 
@@ -44,7 +92,12 @@ The forms email each inquiry to Equvexa Industries through [Resend](https://rese
 | `npm run build`     | Create a production build (includes type checking)      |
 | `npm run start`     | Serve the production build                              |
 | `npm run lint`      | Run ESLint                                              |
-| `npm run typecheck` | Generate route types, then run the TypeScript compiler  |
+| `npm run typecheck` | Generate route types, then type-check the site and the Cloudflare Worker |
+| `npm run preview`   | Build for Cloudflare and run the Worker locally (Wrangler) |
+| `npm run deploy`    | Build for Cloudflare and deploy (normally done by Workers Builds) |
+| `npm run upload`    | Build for Cloudflare and upload a version without deploying it |
+| `npm run cf:check-env` | Check that no `.env` file holds a secret before a Cloudflare build |
+| `npm run cf-typegen` | Regenerate the Worker's binding types from `wrangler.jsonc` |
 
 ## Routes
 
@@ -64,6 +117,11 @@ The forms email each inquiry to Equvexa Industries through [Resend](https://rese
 ## Project structure
 
 ```text
+cloudflare/                 Cloudflare Worker entry and the InquiryGuard Durable Object
+scripts/                    Tooling scripts (the .env secrets check)
+wrangler.jsonc              Cloudflare Worker configuration
+open-next.config.ts         OpenNext adapter configuration
+public/_headers             Cache headers for Workers Static Assets
 public/images/
   logo/                     Official logo (EI-logo.jpeg) and transparent crops derived from it
   products/<category-slug>/ Approved product images, four per category

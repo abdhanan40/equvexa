@@ -1,0 +1,10 @@
+# Settings for a local Cloudflare Worker preview (`npm run preview`) only.
+# Copy to .dev.vars, which is git-ignored. Wrangler reads it when the Worker
+# runs; unlike .env files, the build does not copy it into the Worker.
+#
+# INQUIRY_TO_EMAIL comes from wrangler.jsonc. For deployments, set these as
+# secrets in the Cloudflare dashboard instead (see README).
+
+RESEND_API_KEY=
+VISITOR_HASH_SECRET=
+INQUIRY_FROM_EMAIL=

@@ -1,0 +1,17 @@
+{
+  // Type-checks the Worker entry and the Durable Object with Cloudflare's
+  // runtime types. Kept apart from the Next.js project, which runs on the
+  // DOM and Node.js type definitions instead.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": ["./**/*.ts"]
+}
