@@ -1,0 +1,49 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Must match the Worker's name in the Cloudflare dashboard (Workers Builds).
+  "name": "equvexa",
+  // The OpenNext build output wrapped with the Durable Object (cloudflare/worker.ts).
+  "main": "cloudflare/worker.ts",
+  "compatibility_date": "2026-09-18",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  // public/ files and Next.js's static chunks, served without running the Worker.
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  // next/image resizing (the /_next/image route) through Cloudflare Images.
+  "images": {
+    "binding": "IMAGES"
+  },
+
+  // Rate limits and submission records for the inquiry forms
+  // (cloudflare/inquiry-guard.ts), stored in SQLite.
+  "durable_objects": {
+    "bindings": [{ "name": "INQUIRY_GUARD", "class_name": "InquiryGuard" }]
+  },
+  "exports": {
+    "InquiryGuard": { "type": "durable-object", "storage": "sqlite" }
+  },
+
+  // Plain settings, safe to commit.
+  "vars": {
+    "INQUIRY_TO_EMAIL": "equvexaindustries@gmail.com"
+  },
+
+  // Set in the Cloudflare dashboard or with `wrangler secret put`, never in
+  // this file or in any .env file (see README). INQUIRY_FROM_EMAIL is not
+  // confidential; it is kept here only until the production sender address
+  // is chosen, then it moves to "vars".
+  "secrets": {
+    "required": ["RESEND_API_KEY", "VISITOR_HASH_SECRET", "INQUIRY_FROM_EMAIL"]
+  },
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+
+  // No routes yet: equvexaindustries.com is attached in Stage 3.3B Phase C.
+}

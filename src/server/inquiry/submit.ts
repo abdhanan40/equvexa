@@ -22,13 +22,15 @@ import type {
 } from "@/types/inquiry";
 
 import { contactEmail, quoteEmail, type InquiryEmail } from "./email-template";
+import { SUBMISSION_LEASE_MS, type SubmissionStatus } from "./guard";
 import {
   parseContactInquiry,
   parseQuoteInquiry,
   parseSubmissionMeta,
 } from "./parse";
-import { identifyVisitor, takeAttempt } from "./rate-limit";
+import { identifyVisitor } from "./rate-limit";
 import { checkBehaviour, checkTrap } from "./spam";
+import { getInquiryGuard, type InquiryStore } from "./store";
 
 /*
  * The inquiry pipeline behind both forms:
@@ -37,8 +39,9 @@ import { checkBehaviour, checkTrap } from "./spam";
  *   → email to EQUVEXA through Resend → result for the form
  *
  * The recipient is fixed on the server. Only a small status goes back to the
- * browser, and nothing about a submission is stored beyond a short-lived
- * in-memory note that stops a retried submission from being sent twice.
+ * browser. Nothing about a submission is kept beyond a short-lived note of
+ * its reference and whether it was sent, which stops a retry from being sent
+ * twice (store.ts: a Durable Object on Cloudflare, memory elsewhere).
  */
 
 type EmailContext = { reference: string; receivedAt: Date; sourcePath: string };
@@ -70,30 +73,21 @@ function createReference(date: Date) {
 
 /* --- Duplicate protection ------------------------------------------------ */
 
-type SubmissionRecord = {
-  reference: string;
-  receivedAt: Date;
-  expires: number;
-  result?: InquirySubmissionResult<unknown>;
-  pending?: Promise<InquirySubmissionResult<unknown>>;
-};
+const WAIT_STEP_MS = 400;
 
-const RECORD_TTL_MS = 30 * 60 * 1000;
-const MAX_RECORDS = 1000;
-const records = new Map<string, SubmissionRecord>();
-
-function recordFor(key: string, now: number) {
-  for (const [id, record] of records) {
-    if (record.expires <= now || records.size > MAX_RECORDS) records.delete(id);
-    else break;
-  }
-  let record = records.get(key);
-  if (!record) {
-    const receivedAt = new Date(now);
-    record = { reference: createReference(receivedAt), receivedAt, expires: now + RECORD_TTL_MS };
-    records.set(key, record);
-  }
-  return record;
+/**
+ * Another attempt is sending this same submission (a repeated request). Waits
+ * for it to finish, up to the time it may hold the submission, and reports
+ * how it ended.
+ */
+async function waitForOtherAttempt(store: InquiryStore, key: string) {
+  const deadline = Date.now() + SUBMISSION_LEASE_MS;
+  let status: SubmissionStatus;
+  do {
+    await new Promise((resolve) => setTimeout(resolve, WAIT_STEP_MS));
+    status = await store.submissionStatus(key);
+  } while (status.state === "sending" && Date.now() < deadline);
+  return status;
 }
 
 /* --- Source page --------------------------------------------------------- */
@@ -143,7 +137,9 @@ async function submit<T>(
 ): Promise<InquirySubmissionResult<T>> {
   const started = Date.now();
   const requestHeaders = await headers();
-  const visitor = identifyVisitor(requestHeaders);
+  const guard = getInquiryGuard();
+  const { store } = guard;
+  const visitor = identifyVisitor(requestHeaders, guard);
   const meta = parseSubmissionMeta(formData);
   const submission = read(formData);
 
@@ -159,7 +155,7 @@ async function submit<T>(
 
   // Spam trap: people never fill it. Answer as if sent and send nothing.
   if (checkTrap(meta).kind === "drop") {
-    takeAttempt(visitor);
+    await store.takeAttempt(visitor.key);
     log("dropped", { reason: "trap" });
     return { status: "sent", reference: createReference(new Date()) };
   }
@@ -171,20 +167,31 @@ async function submit<T>(
   }
 
   // A submission already sent (a double click, or a retry after a lost
-  // response) returns the same result instead of sending again.
-  const key = meta.submissionId
-    ? `${submission.form}:${meta.submissionId}`
-    : `${submission.form}:${randomUUID()}`;
-  const existing = records.get(key);
-  if (existing?.result?.status === "sent") {
-    log("duplicate", { reference: existing.reference });
-    return existing.result as InquirySubmissionResult<T>;
-  }
-  if (existing?.pending) {
-    return (await existing.pending) as InquirySubmissionResult<T>;
+  // response) returns the same result instead of sending again. A request
+  // without a submission id is hand-made; it is not tracked.
+  const key = meta.submissionId ? `${submission.form}:${meta.submissionId}` : null;
+
+  const answerRepeat = async (
+    status: SubmissionStatus,
+  ): Promise<InquirySubmissionResult<T>> => {
+    const settled =
+      status.state === "sending" && key ? await waitForOtherAttempt(store, key) : status;
+    if (settled.state === "sent") {
+      log("duplicate", { reference: settled.record.reference });
+      return { status: "sent", reference: settled.record.reference };
+    }
+    log("failed", { reason: "repeat-not-delivered" });
+    return { status: "failed" };
+  };
+
+  if (key) {
+    const earlier = await store.submissionStatus(key);
+    if (earlier.state === "sent" || earlier.state === "sending") {
+      return answerRepeat(earlier);
+    }
   }
 
-  if (!takeAttempt(visitor)) {
+  if (!(await store.takeAttempt(visitor.key))) {
     log("rate-limited");
     return { status: "rate-limited" };
   }
@@ -205,44 +212,42 @@ async function submit<T>(
 
   // Retries of the same submission reuse its reference and time, so the
   // email is identical and Resend's idempotency key can recognise it.
-  const record = recordFor(key, started);
-  const pending = (async (): Promise<InquirySubmissionResult<T>> => {
-    const email = submission.email({
-      reference: record.reference,
-      receivedAt: record.receivedAt,
-      sourcePath: sourcePath(requestHeaders, submission.route),
-    });
-    const result = await sendEmail({
-      ...addresses,
-      replyTo: submission.replyTo,
-      ...email,
-      idempotencyKey: `equvexa-inquiry/${key}`,
-    });
-    if (result.ok) {
-      log("sent", {
-        reference: record.reference,
-        providerStatus: result.status,
-        providerId: result.id,
-      });
-      return { status: "sent", reference: record.reference };
-    }
-    log("failed", {
-      reason: result.error,
+  const now = Date.now();
+  let record = { reference: createReference(new Date(now)), receivedAt: now };
+  if (key) {
+    const claim = await store.claimSubmission(key, record);
+    if (!claim.claimed) return answerRepeat(claim.status);
+    record = claim.record;
+  }
+
+  const email = submission.email({
+    reference: record.reference,
+    receivedAt: new Date(record.receivedAt),
+    sourcePath: sourcePath(requestHeaders, submission.route),
+  });
+  const result = await sendEmail({
+    ...addresses,
+    replyTo: submission.replyTo,
+    ...email,
+    idempotencyKey: `equvexa-inquiry/${key ?? `${submission.form}:${randomUUID()}`}`,
+  });
+  if (key) await store.finishSubmission(key, result.ok);
+
+  if (result.ok) {
+    log("sent", {
       reference: record.reference,
       providerStatus: result.status,
-      providerError: result.code,
+      providerId: result.id,
     });
-    return { status: "failed" };
-  })();
-
-  record.pending = pending;
-  try {
-    const result = await pending;
-    record.result = result;
-    return result;
-  } finally {
-    record.pending = undefined;
+    return { status: "sent", reference: record.reference };
   }
+  log("failed", {
+    reason: result.error,
+    reference: record.reference,
+    providerStatus: result.status,
+    providerError: result.code,
+  });
+  return { status: "failed" };
 }
 
 /* --- Forms ---------------------------------------------------------------- */
